@@ -31,7 +31,9 @@ class Mismatch:
 
 
 def _strip_comments(text: str) -> str:
-    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
 
 
 def _quoted_values(body: str) -> list[str]:
@@ -75,7 +77,14 @@ def read_gitlinks(repo_root: Path, submodules: list[str]) -> dict[str, str]:
     gitlinks = {}
     for submodule in submodules:
         result = subprocess.run(
-            ["git", "-C", str(repo_root), "ls-tree", "HEAD", f"{SUBMODULE_ROOT}/{submodule}"],
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "ls-tree",
+                "HEAD",
+                f"{SUBMODULE_ROOT}/{submodule}",
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -88,10 +97,14 @@ def read_gitlinks(repo_root: Path, submodules: list[str]) -> dict[str, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--repo-root", type=Path, default=Path(__file__).resolve().parents[1]
+    )
     args = parser.parse_args()
 
-    config = parse_stack_config((args.repo_root / STACK_FILE).read_text(encoding="utf-8"))
+    config = parse_stack_config(
+        (args.repo_root / STACK_FILE).read_text(encoding="utf-8")
+    )
     if not config.pins:
         print(f"error: no pins found in {STACK_FILE}", file=sys.stderr)
         return 1

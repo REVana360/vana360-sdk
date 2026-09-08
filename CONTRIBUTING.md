@@ -14,8 +14,9 @@ python -m pip install -r scripts/requirements-dev.txt
 .\scripts\verify.ps1
 ```
 
-The check validates formatting with clang-format 22, Vulkan dependency pins,
-Python tests, the commit subject, and Git whitespace.
+The check validates C and C++ formatting with clang-format 22, Python lint and
+formatting with Ruff 0.15.21, Vulkan dependency pins, Python tests, the commit
+subject, and Git whitespace.
 
 Build or platform changes also require the affected CMake preset and tests.
 State which configurations were exercised when submitting the change.

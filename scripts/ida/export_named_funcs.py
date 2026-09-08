@@ -29,6 +29,7 @@ import idc
 
 # ── Config persistence ──────────────────────────────────────────────────────
 
+
 def _config_path():
     """Return path to the JSON config sidecar next to the current IDB."""
     return os.path.splitext(idc.get_idb_path())[0] + ".export_config.json"
@@ -70,14 +71,17 @@ def save_config(cfg):
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+
 def collect_import_eas():
     """Build a set of all imported function addresses for lookup."""
     imports = set()
     for i in range(ida_nalt.get_import_module_qty()):
+
         def callback(ea, name, ordinal):
             if ea != idaapi.BADADDR:
                 imports.add(ea)
             return True
+
         ida_nalt.enum_import_names(i, callback)
     return imports
 
@@ -85,14 +89,14 @@ def collect_import_eas():
 def sanitize_name(name):
     """Convert a mangled IDA name into a valid C/C++ identifier."""
     # Replace any non-alphanumeric/underscore character with _
-    name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+    name = re.sub(r"[^a-zA-Z0-9_]", "_", name)
     # Collapse consecutive underscores
-    name = re.sub(r'_+', '_', name)
+    name = re.sub(r"_+", "_", name)
     # Strip leading/trailing underscores
-    name = name.strip('_')
+    name = name.strip("_")
     # If starts with a digit, prepend _
     if name and name[0].isdigit():
-        name = '_' + name
+        name = "_" + name
     return name
 
 
@@ -102,14 +106,10 @@ def sanitize_name(name):
 #   0x82C061F0 = { parent = 0x82C03A58, size = 8 }
 #   0x82452ec0 = {}
 #   0x82170000 = { name = "rex_RtlOutputDebugString", size = 0xC }
-_ENTRY_RE = re.compile(
-    r'^(0[xX][0-9a-fA-F]+)\s*=\s*\{(.*)\}\s*$'
-)
+_ENTRY_RE = re.compile(r"^(0[xX][0-9a-fA-F]+)\s*=\s*\{(.*)\}\s*$")
 
 # Matches a key = value pair inside the braces (handles quoted strings)
-_KV_RE = re.compile(
-    r'(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|0[xX][0-9a-fA-F]+|\d+)'
-)
+_KV_RE = re.compile(r'(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|0[xX][0-9a-fA-F]+|\d+)')
 
 
 def parse_entry(line):
@@ -161,8 +161,11 @@ def load_toml_functions(toml_path):
         stripped = line.strip()
         if stripped == "[functions]":
             func_section_start = i
-        elif (func_section_start is not None
-              and stripped.startswith("[") and stripped.endswith("]")):
+        elif (
+            func_section_start is not None
+            and stripped.startswith("[")
+            and stripped.endswith("]")
+        ):
             func_section_end = i
             break
 
@@ -174,7 +177,7 @@ def load_toml_functions(toml_path):
         func_section_end = len(lines)
 
     existing_addrs = {}  # addr_int -> index in func_lines
-    func_lines = []      # list of (is_entry, content)
+    func_lines = []  # list of (is_entry, content)
 
     for i in range(func_section_start + 1, func_section_end):
         line = lines[i]
@@ -190,8 +193,7 @@ def load_toml_functions(toml_path):
     return lines, func_section_start, func_section_end, existing_addrs, func_lines
 
 
-def write_toml(out_path, lines, func_section_start, func_section_end,
-               func_lines):
+def write_toml(out_path, lines, func_section_start, func_section_end, func_lines):
     """Rebuild and write the TOML file with function entries sorted by address."""
     out_lines = []
 
@@ -226,6 +228,7 @@ def write_toml(out_path, lines, func_section_start, func_section_end,
 
 # ── UI ──────────────────────────────────────────────────────────────────────
 
+
 class ExportOptionsForm(ida_kernwin.Form):
     """Options dialog for export_named_funcs script."""
 
@@ -254,21 +257,27 @@ Output
 <Skip thunks (j_):{cIgnoreThunks}>{cSkipGroup}>
 """,
             {
-                "cExportGroup": ida_kernwin.Form.ChkGroupControl((
-                    "cNamed",
-                    "cFuncPtrs",
-                )),
-                "cSyncGroup": ida_kernwin.Form.ChkGroupControl((
-                    "cRemoveStale",
-                    "cUpdateSizes",
-                    "cUpdateNames",
-                    "cOverwrite",
-                )),
-                "cSkipGroup": ida_kernwin.Form.ChkGroupControl((
-                    "cIgnoreRestSave",
-                    "cIgnoreNullsub",
-                    "cIgnoreThunks",
-                )),
+                "cExportGroup": ida_kernwin.Form.ChkGroupControl(
+                    (
+                        "cNamed",
+                        "cFuncPtrs",
+                    )
+                ),
+                "cSyncGroup": ida_kernwin.Form.ChkGroupControl(
+                    (
+                        "cRemoveStale",
+                        "cUpdateSizes",
+                        "cUpdateNames",
+                        "cOverwrite",
+                    )
+                ),
+                "cSkipGroup": ida_kernwin.Form.ChkGroupControl(
+                    (
+                        "cIgnoreRestSave",
+                        "cIgnoreNullsub",
+                        "cIgnoreThunks",
+                    )
+                ),
                 "iPrefix": ida_kernwin.Form.StringInput(value="rex_"),
                 "iNameFilter": ida_kernwin.Form.StringInput(value=""),
                 "iNameExclude": ida_kernwin.Form.StringInput(value=""),
@@ -334,15 +343,17 @@ def show_options():
         return None
 
     # Persist config for next run
-    save_config({
-        "toml_path": toml_path,
-        "prefix": name_prefix,
-        "export_group": export_val,
-        "sync_group": sync_val,
-        "skip_group": skip_val,
-        "name_filter": name_filter,
-        "name_exclude": name_exclude,
-    })
+    save_config(
+        {
+            "toml_path": toml_path,
+            "prefix": name_prefix,
+            "export_group": export_val,
+            "sync_group": sync_val,
+            "skip_group": skip_val,
+            "name_filter": name_filter,
+            "name_exclude": name_exclude,
+        }
+    )
 
     # Build ignore prefixes from checkbox state
     ignore_prefixes = ["sub_", "start"]  # always skip IDA defaults
@@ -357,9 +368,7 @@ def show_options():
     if overwrite:
         out_path = toml_path
     else:
-        out_path = ida_kernwin.ask_file(
-            True, toml_path, "Save updated TOML config as"
-        )
+        out_path = ida_kernwin.ask_file(True, toml_path, "Save updated TOML config as")
         if not out_path:
             return None
 
@@ -380,6 +389,7 @@ def show_options():
 
 # ── IDA data collection ────────────────────────────────────────────────────
 
+
 def collect_func_ptr_args():
     """Find functions whose addresses are only loaded in code as values
     (lis/addi pattern) and never called directly. These are function
@@ -395,12 +405,10 @@ def collect_func_ptr_args():
         has_code_data_xref = False
 
         for xref in idautils.XrefsTo(func_ea):
-            if xref.type in (idaapi.fl_CF, idaapi.fl_CN,
-                             idaapi.fl_JF, idaapi.fl_JN):
+            if xref.type in (idaapi.fl_CF, idaapi.fl_CN, idaapi.fl_JF, idaapi.fl_JN):
                 has_direct_call = True
                 break
-            elif xref.type in (idaapi.dr_O, idaapi.dr_W,
-                               idaapi.dr_R, idaapi.dr_I):
+            elif xref.type in (idaapi.dr_O, idaapi.dr_W, idaapi.dr_R, idaapi.dr_I):
                 if idaapi.get_func(xref.frm):
                     has_code_data_xref = True
 
@@ -415,6 +423,7 @@ def collect_func_ptr_args():
 
 
 # ── Main export workflow ────────────────────────────────────────────────────
+
 
 def run_export(settings):
     """Unified export workflow: collect IDA data, sync with TOML, write output."""
@@ -488,8 +497,10 @@ def run_export(settings):
             n = props["name"].strip('"')
             if n in used_names and used_names[n] != addr_int:
                 duplicate_names.append((n, addr_int, used_names[n]))
-                print(f"[export] PRE-EXISTING DUPLICATE: '{n}' at 0x{addr_int:08X} "
-                      f"conflicts with 0x{used_names[n]:08X} -- removing name")
+                print(
+                    f"[export] PRE-EXISTING DUPLICATE: '{n}' at 0x{addr_int:08X} "
+                    f"conflicts with 0x{used_names[n]:08X} -- removing name"
+                )
                 del props["name"]
                 func_lines[idx] = (True, (addr_int, addr_str, props))
 
@@ -514,14 +525,21 @@ def run_export(settings):
                 if "name" not in props or props["name"] != rex_name:
                     # Check for name collision with another address
                     if full_name in used_names and used_names[full_name] != addr_int:
-                        duplicate_names.append((full_name, addr_int, used_names[full_name]))
-                        print(f"[export] DUPLICATE: '{full_name}' at 0x{addr_int:08X} "
-                              f"conflicts with 0x{used_names[full_name]:08X} -- skipping name update")
+                        duplicate_names.append(
+                            (full_name, addr_int, used_names[full_name])
+                        )
+                        print(
+                            f"[export] DUPLICATE: '{full_name}' at 0x{addr_int:08X} "
+                            f"conflicts with 0x{used_names[full_name]:08X} -- skipping name update"
+                        )
                     else:
                         # Remove old name from tracking if it had one
                         if "name" in props:
                             old_name = props["name"].strip('"')
-                            if old_name in used_names and used_names[old_name] == addr_int:
+                            if (
+                                old_name in used_names
+                                and used_names[old_name] == addr_int
+                            ):
                                 del used_names[old_name]
                         props["name"] = rex_name
                         used_names[full_name] = addr_int
@@ -557,8 +575,7 @@ def run_export(settings):
     # Remove stale entries
     if stale_indices:
         func_lines = [
-            item for idx, item in enumerate(func_lines)
-            if idx not in stale_indices
+            item for idx, item in enumerate(func_lines) if idx not in stale_indices
         ]
 
     # Step 4 -- Insert new entries from remaining ida_funcs_map items
@@ -572,8 +589,10 @@ def run_export(settings):
             # Check for name collision before inserting
             if full_name in used_names:
                 duplicate_names.append((full_name, ea, used_names[full_name]))
-                print(f"[export] DUPLICATE: '{full_name}' at 0x{ea:08X} "
-                      f"conflicts with 0x{used_names[full_name]:08X} -- inserting without name")
+                print(
+                    f"[export] DUPLICATE: '{full_name}' at 0x{ea:08X} "
+                    f"conflicts with 0x{used_names[full_name]:08X} -- inserting without name"
+                )
             else:
                 props["name"] = f'"{full_name}"'
                 used_names[full_name] = ea
@@ -587,16 +606,22 @@ def run_export(settings):
 
     # Step 7 -- Report duplicates in detail to console
     if duplicate_names:
-        print(f"\n[export] WARNING: {len(duplicate_names)} duplicate function name(s) detected:")
+        print(
+            f"\n[export] WARNING: {len(duplicate_names)} duplicate function name(s) detected:"
+        )
         for dup_name, new_addr, existing_addr in duplicate_names:
-            print(f"  '{dup_name}': 0x{new_addr:08X} conflicts with 0x{existing_addr:08X}")
+            print(
+                f"  '{dup_name}': 0x{new_addr:08X} conflicts with 0x{existing_addr:08X}"
+            )
         print("")
 
     # Step 8 -- Show single stats dialog
     dup_msg = ""
     if duplicate_names:
-        dup_msg = (f"\n  WARNING: {len(duplicate_names)} duplicate name(s) skipped "
-                   f"(see console for details)\n")
+        dup_msg = (
+            f"\n  WARNING: {len(duplicate_names)} duplicate name(s) skipped "
+            f"(see console for details)\n"
+        )
     ida_kernwin.info(
         f"Export complete.\n"
         f"  {updated_count} existing functions updated (name and/or size)\n"

@@ -34,7 +34,9 @@ def test_evaluate_flags_a_moved_submodule():
 
 
 def test_evaluate_skips_exempt_submodules_until_unexempted():
-    config = StackConfig(sdk_version="1.0.0.0", pins={"glslang": "a" * 40}, exemptions=["glslang"])
+    config = StackConfig(
+        sdk_version="1.0.0.0", pins={"glslang": "a" * 40}, exemptions=["glslang"]
+    )
     assert evaluate(config, {}) == []
     config.exemptions = []
     assert [m.submodule for m in evaluate(config, {})] == ["glslang"]

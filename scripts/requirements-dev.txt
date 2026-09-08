@@ -2,3 +2,4 @@
 # Install: python -m pip install -r scripts/requirements-dev.txt
 clang-format==22.1.8
 pytest==9.0.2
+ruff==0.15.21

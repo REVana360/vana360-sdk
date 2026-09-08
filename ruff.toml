@@ -1,0 +1,8 @@
+# High-signal checks for maintained first-party Python under scripts/.
+[lint]
+select = ["E", "F"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# The test adjusts sys.path before importing the script under test.
+"scripts/tests/test_check_vulkan_stack.py" = ["E402"]

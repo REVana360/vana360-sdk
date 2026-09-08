@@ -441,6 +441,12 @@ X_RESULT ContentManager::UnmountContent(uint64_t xuid, const XCONTENT_AGGREGATE_
 
 X_RESULT ContentManager::UnmountAndDeleteContent(uint64_t xuid,
                                                  const XCONTENT_AGGREGATE_DATA& data) {
+  // External packages are read-only mounts. Check before detaching the
+  // package, so a denied delete leaves the existing guest mount intact.
+  if (IsExternalContent(xuid, data)) {
+    return X_ERROR_ACCESS_DENIED;
+  }
+
   // Unmount phase: tolerant of not-mounted state
   ContentPackage* package = nullptr;
   {
@@ -451,10 +457,6 @@ X_RESULT ContentManager::UnmountAndDeleteContent(uint64_t xuid,
     }
   }
   delete package;
-
-  if (IsExternalContent(xuid, data)) {
-    return X_ERROR_ACCESS_DENIED;
-  }
 
   // Delete phase: remove package directory and .header file
   auto package_path = ResolvePackagePath(xuid, data);

@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <algorithm>
 #include <cstring>
 
 #include <rex/kernel/xam/module.h>
@@ -155,17 +156,33 @@ X_STATUS XSocket::Listen(int backlog) {
 }
 
 object_ref<XSocket> XSocket::Accept(N_XSOCKADDR* name, int* name_len) {
-  sockaddr n_sockaddr;
-  socklen_t n_name_len = sizeof(sockaddr);
-  uintptr_t ret = accept(native_handle_, &n_sockaddr, &n_name_len);
+  sockaddr n_sockaddr{};
+  const size_t name_capacity =
+      name ? (name_len
+                  ? static_cast<size_t>(std::clamp(*name_len, 0, static_cast<int>(sizeof(*name))))
+                  : sizeof(*name))
+           : 0;
+  socklen_t n_name_len =
+      static_cast<socklen_t>(std::min(name_capacity, static_cast<size_t>(sizeof(n_sockaddr))));
+  uintptr_t ret =
+      accept(native_handle_, name ? &n_sockaddr : nullptr, name_len ? &n_name_len : nullptr);
   if (ret == -1) {
-    std::memset(name, 0, *name_len);
-    *name_len = 0;
+    if (name) {
+      std::memset(name, 0, name_capacity);
+    }
+    if (name_len) {
+      *name_len = 0;
+    }
     return nullptr;
   }
 
-  std::memcpy(name, &n_sockaddr, n_name_len);
-  *name_len = n_name_len;
+  if (name) {
+    std::memcpy(name, &n_sockaddr,
+                std::min({sizeof(*name), name_capacity, static_cast<size_t>(n_name_len)}));
+  }
+  if (name_len) {
+    *name_len = n_name_len;
+  }
 
   // Create a kernel object to represent the new socket, and copy parameters
   // over.
@@ -211,14 +228,18 @@ int XSocket::RecvFrom(uint8_t* buf, uint32_t buf_len, uint32_t flags, N_XSOCKADD
   */
 
   sockaddr_in nfrom{};
-  socklen_t nfromlen = from_len ? static_cast<socklen_t>(*from_len) : 0;
+  const size_t from_capacity =
+      from ? (from_len ? static_cast<size_t>(*from_len) : sizeof(*from)) : 0;
+  socklen_t nfromlen =
+      static_cast<socklen_t>(std::min(from_capacity, static_cast<size_t>(sizeof(nfrom))));
   int ret = recvfrom(native_handle_, reinterpret_cast<char*>(buf), buf_len, flags,
                      from ? reinterpret_cast<sockaddr*>(&nfrom) : nullptr,
                      from_len ? &nfromlen : nullptr);
   if (ret >= 0 && from) {
     // The native and normalized Xbox structures have the same wire layout:
     // native-endian family followed by network-endian port and address.
-    std::memcpy(from, &nfrom, sizeof(nfrom));
+    std::memcpy(from, &nfrom,
+                std::min({sizeof(*from), from_capacity, static_cast<size_t>(nfromlen)}));
   }
 
   if (ret >= 0 && from_len) {

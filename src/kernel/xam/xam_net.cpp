@@ -12,7 +12,11 @@
 // Disable warnings about unused parameters for kernel functions
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
+#include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <optional>
+#include <string_view>
 
 #if REX_PLATFORM_MAC
 #include <sys/select.h>
@@ -52,6 +56,40 @@ using namespace rex::system;
 using namespace rex::system::xam;
 
 constexpr u32 kInvalidSocketHandle = ~u32{0};
+
+constexpr size_t kMaxGuestDnsHostLength = 255;
+constexpr uint32_t kGuestNetworkTraceBudget = 256;
+std::atomic<uint32_t> guest_network_trace_events{0};
+
+bool ConsumeGuestNetworkTrace() {
+  if (!REXCVAR_GET(guest_network_trace)) {
+    return false;
+  }
+
+  uint32_t events = guest_network_trace_events.load(std::memory_order_relaxed);
+  while (events < kGuestNetworkTraceBudget &&
+         !guest_network_trace_events.compare_exchange_weak(
+             events, events + 1, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+  return events < kGuestNetworkTraceBudget;
+}
+
+void ResetGuestNetworkTraceBudget() {
+  guest_network_trace_events.store(0, std::memory_order_relaxed);
+}
+
+std::optional<std::string_view> ReadGuestDnsHost(mapped_string host) {
+  if (!host) {
+    return std::nullopt;
+  }
+
+  const auto* host_data = host.host_address();
+  const auto* terminator =
+      static_cast<const char*>(std::memchr(host_data, '\0', kMaxGuestDnsHostLength + 1));
+  if (!terminator) {
+    return std::nullopt;
+  }
+  return std::string_view(host_data, static_cast<size_t>(terminator - host_data));
+}
 
 // Guest Winsock code treats SOCKET as signed and reserves -1 for failure.
 // Keep the high-bit object handle internal and expose only its descriptor.
@@ -205,7 +243,8 @@ struct XNetStartupParams {
 XNetStartupParams xnet_startup_params = {};
 
 u32 NetDll_XNetStartup_entry(u32 caller, ppc_ptr_t<XNetStartupParams> params) {
-  if (REXCVAR_GET(guest_network_trace)) {
+  ResetGuestNetworkTraceBudget();
+  if (ConsumeGuestNetworkTrace()) {
     REXKRNL_INFO("Guest XNet startup: caller={:08X}", caller);
   }
   if (params) {
@@ -297,7 +336,7 @@ u32 NetDll_WSAStartup_entry(u32 caller, u16 version, ppc_ptr_t<X_WSADATA> data_p
   }
 #endif
 
-  if (REXCVAR_GET(guest_network_trace)) {
+  if (ConsumeGuestNetworkTrace()) {
     REXKRNL_INFO("Guest WSA startup: version={:04X} result={} caller={:08X}", version, ret, caller);
   }
 
@@ -544,20 +583,19 @@ u32 NetDll_XNetDnsLookup_entry(u32 caller, mapped_string host, u32 event_handle,
     auto dns = REX_KERNEL_MEMORY()->TranslateVirtual<XNDNS*>(dns_guest);
     std::memset(dns, 0, sizeof(*dns));
     dns->status = 1;  // non-zero = error
-    if (host) {
-      if (REXCVAR_GET(guest_network_trace)) {
-        REXKRNL_INFO("Guest XNet DNS lookup requested: host={} caller={:08X}", host.value(),
-                     caller);
+    if (const auto host_name = ReadGuestDnsHost(host)) {
+      if (ConsumeGuestNetworkTrace()) {
+        REXKRNL_INFO("Guest XNet DNS lookup requested: host={} caller={:08X}", *host_name, caller);
       }
       if (auto* runtime = Runtime::instance(); runtime && runtime->network_hooks().resolve_ipv4) {
-        const auto resolved = runtime->network_hooks().resolve_ipv4(caller, host.value());
+        const auto resolved = runtime->network_hooks().resolve_ipv4(caller, *host_name);
         if (resolved) {
           dns->status = 0;
           dns->cina = 1;
           dns->aina[0].s_addr = htonl(*resolved);
-          if (REXCVAR_GET(guest_network_trace)) {
-            REXKRNL_INFO("Guest XNet DNS lookup: host={} caller={:08X} address={:08X}",
-                         host.value(), caller, *resolved);
+          if (ConsumeGuestNetworkTrace()) {
+            REXKRNL_INFO("Guest XNet DNS lookup: host={} caller={:08X} address={:08X}", *host_name,
+                         caller, *resolved);
           }
         }
       }
@@ -636,7 +674,7 @@ u32 NetDll_socket_entry(u32 caller, u32 af, u32 type, u32 protocol) {
 
     uint32_t error = xboxkrnl::xeRtlNtStatusToDosError(result);
     XThread::SetLastError(error);
-    if (REXCVAR_GET(guest_network_trace)) {
+    if (ConsumeGuestNetworkTrace()) {
       REXKRNL_INFO("Guest socket failed: family={} type={} protocol={} caller={:08X}", af, type,
                    protocol, caller);
     }
@@ -644,7 +682,7 @@ u32 NetDll_socket_entry(u32 caller, u32 af, u32 type, u32 protocol) {
   }
 
   const u32 socket_handle = ToGuestSocketHandle(socket->handle());
-  if (REXCVAR_GET(guest_network_trace)) {
+  if (ConsumeGuestNetworkTrace()) {
     REXKRNL_INFO("Guest socket created: handle={:08X} family={} type={} protocol={} caller={:08X}",
                  socket_handle, af, type, protocol, caller);
   }
@@ -728,7 +766,7 @@ u32 NetDll_ioctlsocket_entry(u32 caller, u32 socket_handle, u32 cmd, mapped_void
 #else
   const uint32_t native_error = 0;
 #endif
-  if (REXCVAR_GET(guest_network_trace)) {
+  if (ConsumeGuestNetworkTrace()) {
     REXKRNL_INFO(
         "Guest socket ioctl: handle={:08X} command={:08X} caller={:08X} "
         "status={:08X} native_error={} scalar={}",
@@ -784,7 +822,7 @@ u32 NetDll_connect_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> nam
 #else
   const uint32_t native_error = 0;
 #endif
-  if (REXCVAR_GET(guest_network_trace)) {
+  if (ConsumeGuestNetworkTrace()) {
     REXKRNL_INFO("Guest connect: handle={:08X} port={} caller={:08X} status={:08X} native_error={}",
                  socket_handle, peer_port, caller, static_cast<uint32_t>(status), native_error);
   }
@@ -816,7 +854,7 @@ u32 NetDll_listen_entry(u32 caller, u32 socket_handle, i32 backlog) {
 
 u32 NetDll_accept_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> addr_ptr,
                         mapped_u32 addrlen_ptr) {
-  if (!addr_ptr) {
+  if (static_cast<bool>(addr_ptr) != static_cast<bool>(addrlen_ptr)) {
     // WSAEFAULT
     XThread::SetLastError(0x271E);
     return -1;
@@ -829,13 +867,24 @@ u32 NetDll_accept_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> addr
     return -1;
   }
 
-  N_XSOCKADDR native_addr(addr_ptr);
-  int native_len = *addrlen_ptr;
+  const uint32_t guest_capacity = addrlen_ptr ? addrlen_ptr.value() : 0;
+  N_XSOCKADDR native_addr{};
+  std::memset(&native_addr, 0, sizeof(native_addr));
+  int native_len = sizeof(native_addr);
   auto new_socket = socket->Accept(&native_addr, &native_len);
   if (new_socket) {
-    addr_ptr->address_family = native_addr.address_family;
-    std::memcpy(addr_ptr->sa_data, native_addr.sa_data, *addrlen_ptr - 2);
-    *addrlen_ptr = native_len;
+    XSOCKADDR guest_addr{};
+    guest_addr.address_family = native_addr.address_family;
+    std::memcpy(guest_addr.sa_data, native_addr.sa_data, sizeof(guest_addr.sa_data));
+    if (addr_ptr) {
+      const size_t copy_size =
+          std::min({static_cast<size_t>(guest_capacity), sizeof(guest_addr),
+                    native_len > 0 ? static_cast<size_t>(native_len) : size_t{0}});
+      std::memcpy(addr_ptr.host_address(), &guest_addr, copy_size);
+    }
+    if (addrlen_ptr) {
+      *addrlen_ptr = native_len;
+    }
 
     return ToGuestSocketHandle(new_socket->handle());
   } else {
@@ -939,7 +988,7 @@ i32 NetDll_select_entry(i32 caller, i32 nfds, ppc_ptr_t<x_fd_set> readfds,
     host_exceptfds.UpdateFrom(&native_exceptfds);
     host_exceptfds.Store(exceptfds);
   }
-  if (REXCVAR_GET(guest_network_trace)) {
+  if (ConsumeGuestNetworkTrace()) {
     REXKRNL_INFO("Guest select: read={} write={} except={} caller={:08X} result={}",
                  host_readfds.count, host_writefds.count, host_exceptfds.count, caller, ret);
   }
@@ -964,7 +1013,7 @@ u32 NetDll_recv_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 bu
 #endif
     XThread::SetLastError(error_code);
   }
-  if (REXCVAR_GET(guest_network_trace)) {
+  if (ConsumeGuestNetworkTrace()) {
     REXKRNL_INFO(
         "Guest recv: handle={:08X} requested={} received={} port={} "
         "caller={:08X} native_error={}",
@@ -982,11 +1031,16 @@ u32 NetDll_recvfrom_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u3
     return -1;
   }
 
-  N_XSOCKADDR_IN native_from{};
-  if (from_ptr) {
-    native_from = *from_ptr;
+  if (static_cast<bool>(from_ptr) != static_cast<bool>(fromlen_ptr)) {
+    // WSAEFAULT
+    XThread::SetLastError(0x271E);
+    return -1;
   }
-  uint32_t native_fromlen = fromlen_ptr ? fromlen_ptr.value() : 0;
+
+  const uint32_t guest_capacity = fromlen_ptr ? fromlen_ptr.value() : 0;
+  N_XSOCKADDR_IN native_from{};
+  std::memset(&native_from, 0, sizeof(native_from));
+  uint32_t native_fromlen = from_ptr ? sizeof(native_from) : 0;
   int ret = socket->RecvFrom(buf_ptr, buf_len, flags, from_ptr ? &native_from : nullptr,
                              fromlen_ptr ? &native_fromlen : nullptr);
 
@@ -999,16 +1053,19 @@ u32 NetDll_recvfrom_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u3
   }
 
   if (ret >= 0 && from_ptr) {
-    from_ptr->sin_family = native_from.sin_family;
-    from_ptr->sin_port = native_from.sin_port;
-    from_ptr->sin_addr = native_from.sin_addr;
-    std::memset(from_ptr->x_sin_zero, 0, sizeof(from_ptr->x_sin_zero));
+    XSOCKADDR_IN guest_from{};
+    guest_from.sin_family = native_from.sin_family;
+    guest_from.sin_port = native_from.sin_port;
+    guest_from.sin_addr = native_from.sin_addr;
+    const size_t copy_size = std::min({static_cast<size_t>(guest_capacity), sizeof(guest_from),
+                                       static_cast<size_t>(native_fromlen)});
+    std::memcpy(from_ptr.host_address(), &guest_from, copy_size);
   }
   if (ret >= 0 && fromlen_ptr) {
     *fromlen_ptr = native_fromlen;
   }
 
-  if (REXCVAR_GET(guest_network_trace) && (ret >= 0 || error_code != 10035)) {
+  if ((ret >= 0 || error_code != 10035) && ConsumeGuestNetworkTrace()) {
     const uint32_t ipv4 = native_from.sin_addr;
     REXKRNL_INFO(
         "Guest recvfrom: handle={:08X} requested={} received={} "
@@ -1055,6 +1112,7 @@ u32 NetDll_sendto_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 
   }
 
   N_XSOCKADDR_IN native_to{};
+  std::memset(&native_to, 0, sizeof(native_to));
   if (to_ptr) {
     native_to = *to_ptr;
   }
@@ -1066,7 +1124,7 @@ u32 NetDll_sendto_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 
 #endif
     XThread::SetLastError(error_code);
   }
-  if (REXCVAR_GET(guest_network_trace)) {
+  if (ConsumeGuestNetworkTrace()) {
     const uint32_t ipv4 = native_to.sin_addr;
     REXKRNL_INFO(
         "Guest sendto: handle={:08X} requested={} sent={} "

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cstring>
 
 #include <rex/cvar.h>
 #include <rex/platform.h>
@@ -13,6 +14,11 @@
 #include <WinSock2.h>
 
 #include <WS2tcpip.h>
+#elif REX_PLATFORM_LINUX
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #endif
 
 using rex::X_STATUS;
@@ -36,6 +42,52 @@ TEST_CASE("Normalized IPv4 socket addresses preserve wire byte order", "[system]
   CHECK(std::all_of(bytes.begin() + 8, bytes.end(), [](uint8_t byte) { return byte == 0; }));
 }
 
+#if REX_PLATFORM_LINUX
+TEST_CASE("Linux translates Xbox socket ioctl commands", "[system][xsocket][linux]") {
+  rex::system::XSocket receiver(nullptr);
+  REQUIRE(receiver.Initialize(rex::system::XSocket::X_AF_INET, rex::system::XSocket::X_SOCK_DGRAM,
+                              rex::system::XSocket::X_IPPROTO_UDP) == X_STATUS_SUCCESS);
+
+  rex::system::N_XSOCKADDR_IN bind_address{};
+  std::memset(&bind_address, 0, sizeof(bind_address));
+  bind_address.sin_family = rex::system::XSocket::X_AF_INET;
+  bind_address.sin_addr = 0x7F000001;
+  REQUIRE(receiver.Bind(&bind_address, sizeof(bind_address)) == X_STATUS_SUCCESS);
+
+  sockaddr_in receiver_address{};
+  socklen_t receiver_address_length = sizeof(receiver_address);
+  REQUIRE(getsockname(static_cast<int>(receiver.native_handle()),
+                      reinterpret_cast<sockaddr*>(&receiver_address),
+                      &receiver_address_length) == 0);
+
+  uint32_t nonblocking = 1;
+  REQUIRE(receiver.IOControl(0x8004667E, reinterpret_cast<uint8_t*>(&nonblocking)) ==
+          X_STATUS_SUCCESS);
+
+  std::array<uint8_t, 4> received{};
+  CHECK(receiver.Recv(received.data(), received.size(), 0) == -1);
+
+  const int sender = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  REQUIRE(sender >= 0);
+  struct SenderCleanup {
+    int socket;
+    ~SenderCleanup() { close(socket); }
+  } sender_cleanup{sender};
+
+  constexpr std::array<uint8_t, 4> payload{0x10, 0x20, 0x30, 0x40};
+  REQUIRE(sendto(sender, payload.data(), payload.size(), 0,
+                 reinterpret_cast<const sockaddr*>(&receiver_address),
+                 sizeof(receiver_address)) == static_cast<ssize_t>(payload.size()));
+
+  uint32_t queued_bytes = 0;
+  REQUIRE(receiver.IOControl(0x4004667F, reinterpret_cast<uint8_t*>(&queued_bytes)) ==
+          X_STATUS_SUCCESS);
+  CHECK(queued_bytes == payload.size());
+  REQUIRE(receiver.Recv(received.data(), received.size(), 0) == payload.size());
+  CHECK(received == payload);
+}
+#endif
+
 #if REX_PLATFORM_WIN32
 TEST_CASE("recvfrom rejects a short address buffer without consuming data", "[system][xsocket]") {
   WSADATA winsock_data{};
@@ -49,6 +101,7 @@ TEST_CASE("recvfrom rejects a short address buffer without consuming data", "[sy
                               rex::system::XSocket::X_IPPROTO_UDP) == X_STATUS_SUCCESS);
 
   rex::system::N_XSOCKADDR_IN bind_address{};
+  std::memset(&bind_address, 0, sizeof(bind_address));
   bind_address.sin_family = rex::system::XSocket::X_AF_INET;
   bind_address.sin_addr = 0x7F000001;
   REQUIRE(receiver.Bind(&bind_address, sizeof(bind_address)) == X_STATUS_SUCCESS);

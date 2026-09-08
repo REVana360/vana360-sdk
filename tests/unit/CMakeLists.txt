@@ -15,6 +15,7 @@ add_executable(unit_tests
     system/guest_path_test.cpp
     system/external_content_test.cpp
     system/xsocket_test.cpp
+    system/xam_net_test.cpp
     system/achievement_manager_test.cpp
     system/function_dispatcher_test.cpp
     input/input_assignment_test.cpp

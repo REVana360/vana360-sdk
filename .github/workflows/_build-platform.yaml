@@ -49,7 +49,7 @@ jobs:
         run: >-
           git fetch --force --no-tags
           https://github.com/rexglue/rexglue-sdk.git
-          'refs/tags/v*:refs/tags/v*'
+          'refs/tags/v*:refs/tags/upstream/v*'
 
       - name: Install toolchain (Windows)
         if: inputs.platform == 'win-amd64'
@@ -131,7 +131,6 @@ jobs:
           --config Release --target install --parallel
 
       - name: Test
-        if: inputs.platform == 'win-amd64'
         run: >-
           ctest --preset ${{ inputs.platform }}-release
           --output-on-failure --no-tests=error

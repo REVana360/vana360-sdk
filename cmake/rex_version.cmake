@@ -110,7 +110,10 @@ endfunction()
 #     FLOOR_MINOR <int>
 #     [SOURCE_DIR <path>])    # defaults to CMAKE_SOURCE_DIR
 #
-# Runs git in the working tree, then delegates to rex_compute_version.
+# Runs git in the working tree, then delegates to rex_compute_version. Fork
+# release tags are kept in the normal v* namespace. CI may also fetch upstream
+# release tags under upstream/v* as a fallback baseline; those tags must never
+# replace or outrank a fork release tag.
 #==========================================================
 function(rex_resolve_version out_var)
     set(one_value FLOOR_MAJOR FLOOR_MINOR SOURCE_DIR)
@@ -133,6 +136,9 @@ function(rex_resolve_version out_var)
         return()
     endif()
 
+    # Prefer a reachable fork release tag. Upstream tags are fetched into a
+    # separate namespace by CI and are considered only when no fork tag is
+    # reachable from this checkout.
     execute_process(
         COMMAND ${GIT_EXECUTABLE} describe --tags --exact-match
             --match "v[0-9]*.[0-9]*.[0-9]*"
@@ -157,6 +163,43 @@ function(rex_resolve_version out_var)
         RESULT_VARIABLE describe_long_rc)
     if(NOT describe_long_rc EQUAL 0)
         set(describe_long "")
+    endif()
+
+    # Only consult upstream after both fork tag forms have been exhausted.
+    # This preserves a reachable fork baseline even when HEAD also carries an
+    # upstream tag or an upstream tag is otherwise closer in history.
+    if("${describe_exact}" STREQUAL "" AND "${describe_long}" STREQUAL "")
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} describe --tags --exact-match
+                --match "upstream/v[0-9]*.[0-9]*.[0-9]*"
+                --exclude "*-*"
+            WORKING_DIRECTORY "${ARG_SOURCE_DIR}"
+            OUTPUT_VARIABLE describe_exact
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE describe_exact_rc)
+        if(describe_exact_rc EQUAL 0)
+            string(REGEX REPLACE "^upstream/" "" describe_exact "${describe_exact}")
+        else()
+            set(describe_exact "")
+        endif()
+    endif()
+
+    if("${describe_long}" STREQUAL "")
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} describe --tags --long
+                --match "upstream/v[0-9]*.[0-9]*"
+                --exclude "*-*"
+            WORKING_DIRECTORY "${ARG_SOURCE_DIR}"
+            OUTPUT_VARIABLE describe_long
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE describe_long_rc)
+        if(describe_long_rc EQUAL 0)
+            string(REGEX REPLACE "^upstream/" "" describe_long "${describe_long}")
+        else()
+            set(describe_long "")
+        endif()
     endif()
 
     execute_process(

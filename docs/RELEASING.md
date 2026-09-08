@@ -1,6 +1,6 @@
 # Releases
 
-Pushes and pull requests run repository checks and a Windows SDK build.
+Pushes to `main` and pull requests run repository checks and a Windows SDK build.
 They do not publish archives or releases.
 
 The platform release workflows run only for an explicitly created `v*` tag.

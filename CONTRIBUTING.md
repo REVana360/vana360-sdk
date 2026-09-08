@@ -47,5 +47,5 @@ Prefer the owning area over the kind of change. Use only the listed types;
 
 ## Upstream reference
 
-The upstream [Contributing Guide](https://github.com/rexglue/rexglue-sdk/wiki/Development/Contributing)
+The upstream [Contributing Guide](https://github.com/rexglue/rexglue-sdk/wiki/Contributing)
 documents build prerequisites, code style, formatting, Git setup, and pull request mechanics.
